@@ -225,120 +225,92 @@ def eh_completo(estados, transicoes, alfabeto):
                 return False 
     return True
 
-def aplicar_diferenca_simetrica(estados1, transicoes1, alfabeto1, estados2, transicoes2, alfabeto2, nome_saida="diferenca_simetrica_aplicada.jff"):
-    print("Verificando o Autômato 1...")
-    if not eh_completo(estados1, transicoes1, alfabeto1):
-        print("Erro: O Autômato 1 não é um AFD completo. Não é possível aplicar a diferença simétrica.")
-        return None, None
+def aplicar_diferenca_simetrica(estados1, transicoes1, alfabeto1, arvore_xml1, automato_xml1,estados2, transicoes2, alfabeto2, arvore_xml2, automato_xml2,nome_saida="diferenca_simetrica_aplicada.jff"):
+    """
+    Calcula a diferença simétrica de dois autômatos.
+    Se um autômato não for completo, ele é completado antes da operação.
+    """
+    print("\n--- Iniciando Operação de Diferença Simétrica ---")
 
-    print("Verificando o Autômato 2...")
-    if not eh_completo(estados2, transicoes2, alfabeto2):
-        print("Erro: O Autômato 2 não é um AFD completo. Não é possível aplicar a diferença simétrica.")
-        return None, None
+    # Passo 1: Unir os alfabetos. A operação produto requer que ambos os
+    # autômatos sejam completos em relação ao mesmo alfabeto (a união de ambos).
+    alfabeto_uniao = alfabeto1.union(alfabeto2)
+    print(f"Alfabeto unificado para a operação: {sorted(list(alfabeto_uniao))}")
 
-    alfabeto_resultado = alfabeto1.union(alfabeto2)
+    # Passo 2: Verificar e, se necessário, completar o Autômato 1.
+    print("\n--- Verificando Autômato 1 ---")
+    if not eh_completo(estados1, transicoes1, alfabeto_uniao):
+        print("O Autômato 1 não é completo para o alfabeto unificado. Completando...")
+        # Chama a função para completar e atualiza as estruturas de dados locais
+        estados1, transicoes1 = completar_automato(
+            estados1, transicoes1, alfabeto_uniao,
+            arvore_xml1, automato_xml1,
+            nome_saida="automato1_completo_temp.jff"
+        )
+        print("Autômato 1 completado com sucesso.")
+    else:
+        print("O Autômato 1 já é completo em relação ao alfabeto unificado.")
 
+    # Passo 3: Verificar e, se necessário, completar o Autômato 2.
+    print("\n--- Verificando Autômato 2 ---")
+    if not eh_completo(estados2, transicoes2, alfabeto_uniao):
+        print("O Autômato 2 não é completo para o alfabeto unificado. Completando...")
+        # Chama a função para completar e atualiza as estruturas de dados locais
+        estados2, transicoes2 = completar_automato(
+            estados2, transicoes2, alfabeto_uniao,
+            arvore_xml2, automato_xml2,
+            nome_saida="automato2_completo_temp.jff"
+        )
+        print("Autômato 2 completado com sucesso.")
+    else:
+        print("O Autômato 2 já é completo em relação ao alfabeto unificado.")
+
+    # A partir daqui, a lógica original do produto continua, com a garantia
+    # de que ambos os autômatos são AFDs completos.
+    print("\nConstruindo o autômato produto para a diferença simétrica...")
+    
+    alfabeto_resultado = alfabeto_uniao
     novos_estados = {}
     novas_transicoes = []
-    id_estado_inicial_resultado = None
+    mapa_originais_para_novo_id = {}
     contador_novo_estado = 0
 
-    mapa_ids1_para_nomes = {id_e: estados1[id_e]["nome"] for id_e in estados1}
-    mapa_ids2_para_nomes = {id_e: estados2[id_e]["nome"] for id_e in estados2}
-
+    # Criação dos novos estados (produto cartesiano)
     for id1, info1 in estados1.items():
         for id2, info2 in estados2.items():
             novo_id = str(contador_novo_estado)
             novo_nome_combinado = f"({info1['nome']},{info2['nome']})"
+            mapa_originais_para_novo_id[(id1, id2)] = novo_id
+
+            # O estado no autômato produto é final se EXATAMENTE UM dos estados originais for final.
+            eh_final = (info1["final"] and not info2["final"]) or \
+                       (not info1["final"] and info2["final"])
 
             novos_estados[novo_id] = {
                 "nome": novo_nome_combinado,
-                "inicial": False,
-                "final": False
+                "inicial": info1["inicial"] and info2["inicial"],
+                "final": eh_final
             }
-
-            if info1["inicial"] and info2["inicial"]:
-                novos_estados[novo_id]["inicial"] = True
-                id_estado_inicial_resultado = novo_id
-
-            if (info1["final"] and not info2["final"]) or (not info1["final"] and info2["final"]):
-                novos_estados[novo_id]["final"] = True
-
             contador_novo_estado += 1
 
-    if id_estado_inicial_resultado is None:
-        print("Erro: Não foi possível determinar o estado inicial do autômato resultante. Verifique se ambos os autômato de entrada têm estados iniciais.")
-        return None, None
+    # Mapeamento de transições para busca eficiente
+    mapa_transicoes1 = {(f, s): t for f, t, s in transicoes1}
+    mapa_transicoes2 = {(f, s): t for f, t, s in transicoes2}
 
-    tabela_busca_id_estado = {}
-    for novo_id_s, info_novo_s in novos_estados.items():
-        partes_nome = info_novo_s["nome"][1:-1].split(',')
-        nome_original1 = partes_nome[0]
-        nome_original2 = partes_nome[1]
-
-        id1_original = None
-        for id_e, info_e in estados1.items():
-            if info_e["nome"] == nome_original1:
-                id1_original = id_e
-                break
-        id2_original = None
-        for id_e, info_e in estados2.items():
-            if info_e["nome"] == nome_original2:
-                id2_original = id_e
-                break
-
-        if id1_original is not None and id2_original is not None:
-            tabela_busca_id_estado[(id1_original, id2_original)] = novo_id_s
-        else:
-            print(
-                f"Aviso: Não foi possível mapear o nome combinado {info_novo_s['nome']} de volta aos IDs originais.")
-
-    for id_atual_novo, info_atual_novo in novos_estados.items():
-        partes_nome = info_atual_novo["nome"][1:-1].split(',')
-        nome_original1 = partes_nome[0]
-        nome_original2 = partes_nome[1]
-
-        id_atual1_original = None
-        for id_e, info_e in estados1.items():
-            if info_e["nome"] == nome_original1:
-                id_atual1_original = id_e
-                break
-        id_atual2_original = None
-        for id_e, info_e in estados2.items():
-            if info_e["nome"] == nome_original2:
-                id_atual2_original = id_e
-                break
-
-        if id_atual1_original is None or id_atual2_original is None:
-            continue
-
-        mapa_transicoes1 = {}
-        for f, t, s in transicoes1:
-            if f == id_atual1_original:
-                mapa_transicoes1[s] = t
-
-        mapa_transicoes2 = {}
-        for f, t, s in transicoes2:
-            if f == id_atual2_original:
-                mapa_transicoes2[s] = t
-
-        for simbolo_alfabeto in alfabeto_resultado:
-            id_destino1 = mapa_transicoes1.get(simbolo_alfabeto)
-            id_destino2 = mapa_transicoes2.get(simbolo_alfabeto)
+    # Criação das novas transições
+    for (id1, id2), id_novo_origem in mapa_originais_para_novo_id.items():
+        for simbolo in alfabeto_resultado:
+            # Encontra as transições correspondentes nos autômatos originais
+            id_destino1 = mapa_transicoes1.get((id1, simbolo))
+            id_destino2 = mapa_transicoes2.get((id2, simbolo))
 
             if id_destino1 is not None and id_destino2 is not None:
-                id_destino_novo = tabela_busca_id_estado.get(
-                    (id_destino1, id_destino2))
-                if id_destino_novo is not None:
-                    novas_transicoes.append(
-                        (id_atual_novo, id_destino_novo, simbolo_alfabeto))
-                else:
-                    print(
-                        f"Aviso: Não encontrou o novo estado de destino para ({id_destino1},{id_destino2}) com símbolo {simbolo_alfabeto}. Isso pode indicar um problema na construção do autômato produto.")
-            else:
-                print(
-                    f"Aviso: Autômato incompleto ou símbolo ausente para ({id_atual1_original},{id_atual2_original}) no símbolo '{simbolo_alfabeto}'.")
+                # Encontra o ID do estado de destino no novo autômato
+                id_novo_destino = mapa_originais_para_novo_id.get((id_destino1, id_destino2))
+                if id_novo_destino is not None:
+                    novas_transicoes.append((id_novo_origem, id_novo_destino, simbolo))
 
+    # Criação do novo arquivo XML para o resultado
     raiz_xml = ET.Element("structure")
     ET.SubElement(raiz_xml, "type").text = "fa"
     elemento_automato_xml = ET.SubElement(raiz_xml, "automaton")
@@ -358,12 +330,11 @@ def aplicar_diferenca_simetrica(estados1, transicoes1, alfabeto1, estados2, tran
             elemento_automato_xml, "transition")
         ET.SubElement(elemento_transicao_xml, "from").text = de_estado
         ET.SubElement(elemento_transicao_xml, "to").text = para_estado
-        ET.SubElement(elemento_transicao_xml,
-                      "read").text = "" if simbolo == "ε" else simbolo
+        ET.SubElement(elemento_transicao_xml, "read").text = "" if simbolo == "ε" else simbolo
 
     nova_arvore_xml = ET.ElementTree(raiz_xml)
     nova_arvore_xml.write(nome_saida, encoding="utf-8", xml_declaration=True)
-    print(f"\nArquivo '{nome_saida}' salvo com sucesso.")
+    print(f"\nArquivo de diferença simétrica '{nome_saida}' salvo com sucesso.")
 
     return novos_estados, novas_transicoes
 
@@ -493,8 +464,11 @@ def main():
                     if simbolo != "ε":
                         alfabeto2.add(simbolo)
 
+                
                 novos_estados, novas_transicoes = aplicar_diferenca_simetrica(
-                    estados1, transicoes1, alfabeto1, estados2, transicoes2, alfabeto2)
+                estados1, transicoes1, alfabeto1, arvore_xml1, automato_xml1,  
+                estados2, transicoes2, alfabeto2, arvore_xml2, automato_xml2  
+                )
                 if novos_estados is not None:
                     print("\nOperação de Diferença Simétrica aplicada.")
         else:
